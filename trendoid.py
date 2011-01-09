@@ -12,6 +12,8 @@ class Project(db.Model):
     title = db.StringProperty(required=True)
     api_key = db.StringProperty(required=True, verbose_name="API key value used to allow writes")
 
+    field_names = db.StringListProperty()
+
     @classmethod
     def create(cls, slug=None, title=None, api_key=None):
         key_name = "project/%s" % slug
@@ -29,6 +31,20 @@ class DataPoint(db.Expando):
     project = db.ReferenceProperty(Project, collection_name="data_points")
     timestamp = db.DateTimeProperty(auto_now_add=True)
     remote_addr = db.StringProperty(required=True)
+
+    def put(self, *args, **kwargs):
+        super(DataPoint, self).put(*args, **kwargs)
+
+        # Now that we've been saved we'll update the project's list of field
+        # names so retrieval can be fast
+
+        # To avoid repeated lookups:
+        project = self.project
+
+        new_fields = [k for k in self.dynamic_properties() if k not in project.field_names]
+        if new_fields:
+            project.field_names = list(set(project.field_names + new_fields))
+            project.put()
 
 
 class ProjectHandler(webapp.RequestHandler):
@@ -61,15 +77,32 @@ class ProjectHandler(webapp.RequestHandler):
         self.response.set_status(201)
 
 
-class DataCollector(webapp.RequestHandler):
+class ProjectDataHandler(webapp.RequestHandler):
     """
-    Dirt-simple data receiver
+    Dirt-simple data handler with minimal, JSON/POST-only interfaces
     """
+
+    def get(self, project_name=None, field_name=None):
+        project = Project.get_by_key_name("project/%s" % project_name)
+
+        if project is None:
+            self.error(400)
+            return
+
+        if field_name is None:
+            self.response.out.write(simplejson.dumps({"fields": project.field_names}))
+        else:
+            data = [("%sZ" % i.timestamp.isoformat(),
+                    getattr(i, field_name, None)) for i in project.data_points.order("timestamp")]
+            self.response.out.write(simplejson.dumps(data))
+
+        self.response.headers['Content-Type'] = "application/json"
+        self.response.headers['Cache-Control'] = "public; max-age=300"
 
     def post(self, project_name=None):
         """
         POST handler which receives two mandatory values (project and api_key)
-        and one or more
+        and one or more form parameters with arbitrary keys and float values
         """
 
         # For convenience we allow the project to be provided using a
@@ -116,8 +149,9 @@ class DataCollector(webapp.RequestHandler):
 def main():
     application = webapp.WSGIApplication([
         ('^/project$', ProjectHandler),
-        ('^/data$', DataCollector),
-        ('^/project/(?P<project_name>\w+)/data$', DataCollector),
+        ('^/data$', ProjectDataHandler),
+        ('^/project/(?P<project_name>\w+)/data$', ProjectDataHandler),
+        ('^/project/(?P<project_name>\w+)/data/(?P<field_name>\w+)$', ProjectDataHandler),
     ], debug=True)
     util.run_wsgi_app(application)
 
