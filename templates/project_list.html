@@ -1,9 +1,26 @@
 {% extends "base.html" %}
 
 {% block main %}
+    <h1>Projects</h1>
     <ul id="projects">
         {% for project in projects %}
             <li><a href="{{ project.slug }}/">{{ project.title }}</a></li>
         {% endfor %}
     </ul>
+
+    {% if is_admin %}
+        <h2>Create a new project</h2>
+        <form action="" method="post" accept-charset="utf-8">
+            <dl>
+                <dt>Title</dt>
+                <dd><input type="text" name="title" required></dd>
+                <dt>Slug</dt>
+                <dd><input type="text" name="slug" required></dd>
+                <dt>API Key</dt>
+                <dd><input type="text" name="api_key" required></dd>
+            </dl>
+
+            <p><input type="submit" value="Continue &rarr;"></p>
+        </form>
+    {% endif %}
 {% endblock main %}

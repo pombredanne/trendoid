@@ -12,3 +12,8 @@ h1 {
 #chart {
     margin: auto;
 }
+
+/* Form stuff */
+:invalid {
+    background-color: red;
+}

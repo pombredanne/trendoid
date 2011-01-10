@@ -16,6 +16,19 @@
             <header>
                 {% block header %}
                     <h1>{% block page_title %}{% endblock page_title %}</h1>
+                    <nav id="main-nav">
+                        {% block nav %}
+                        <ul>
+                            {% if login_url %}
+                                <li><a href="{{ login_url }}">Login</a></li>
+                            {% endif %}
+                            {% if logout_url %}
+                                <li><a href="{{ logout_url }}">Logout</a></li>
+                            {% endif %}
+                            {% block extra_nav %}{% endblock %}
+                        </ul>
+                        {% endblock nav %}
+                    </nav>
                 {% endblock header %}
             </header>
 

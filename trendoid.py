@@ -56,8 +56,17 @@ class DataPoint(db.Expando):
 
 class ProjectHandler(webapp.RequestHandler):
     def get(self, project_name=None):
+        user = users.get_current_user()
+
         if project_name is None:
-            context = {"projects": Project.all()}
+            context = {"projects": Project.all(), 'user': user,
+                        'is_admin': users.is_current_user_admin()}
+
+            if user:
+                context['logout_url'] = users.create_logout_url("/")
+            else:
+                context['login_url'] = users.create_login_url("/")
+
             resp = render_template('templates/project_list.html', context)
         else:
             project = Project.get_by_key_name("project/%s" % project_name)
