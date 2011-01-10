@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block main %}
+    <h1>{{ project.title }}</h1>
+
+    <div id="filters">
+        <select id="field">
+            {% for field in project.field_names %}
+                <option>{{ field }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div id="chart"></div>
+{% endblock main %}
+
+{% block scripts %}
+    {{ block.super }}
+
+    <!--[if lt IE 9]><script src="excanvas.js"></script><![endif]-->
+    <script type="text/javascript">
+        $("#chart")
+            .height($(window).height() * 0.8)
+            .width($(window).width() * 0.8)
+            .bind("refresh", function () {
+                $.get("data/" + $("#field").val() + "/", function (data) {
+                    var processed = new Array();
+
+                    for (var i = 0; i < data.length; i++) {
+                        processed[i] = [new Date(data[i][0]), data[i][1]];
+                    }
+
+                    g = new Dygraph(document.getElementById("chart"), processed, {
+                        showRoller: true,
+                        labels: ['time', 'value'],
+                        drawPoints: true
+                    });
+                });
+            });
+
+        $("#field").change(function () { $("#chart").trigger("refresh"); });
+
+        $.getScript("/static/external/dygraphs/dygraph-combined.js?{{ STATIC_VERSION }}", function () {
+            $("#chart").trigger("refresh");
+        });
+    </script>
+{% endblock scripts %}

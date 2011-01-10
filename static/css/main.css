@@ -1,0 +1,14 @@
+@import url(../external/html5reset-1.6.1.css);
+
+body {
+    padding: 1em;
+}
+
+h1 {
+    font-weight: bold;
+    font-size: 24pt;
+}
+
+#chart {
+    margin: auto;
+}

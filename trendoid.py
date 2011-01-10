@@ -1,10 +1,17 @@
 #!/usr/bin/env python
 
+import os
+import time
+
 from django.utils import simplejson
 
 from google.appengine.api import users
 from google.appengine.ext import db, webapp
-from google.appengine.ext.webapp import util
+from google.appengine.ext.webapp import template
+from google.appengine.ext.webapp.util import run_wsgi_app
+
+
+APP_ROOT = os.path.dirname(__file__)
 
 
 class Project(db.Model):
@@ -48,6 +55,21 @@ class DataPoint(db.Expando):
 
 
 class ProjectHandler(webapp.RequestHandler):
+    def get(self, project_name=None):
+        if project_name is None:
+            context = {"projects": Project.all()}
+            resp = render_template('templates/project_list.html', context)
+        else:
+            project = Project.get_by_key_name("project/%s" % project_name)
+
+            if project is None:
+                return self.error(404)
+
+            context = {"project": project}
+            resp = render_template('templates/project_detail.html', context)
+
+        self.response.out.write(resp)
+
     def post(self):
         user = users.get_current_user()
         if not user:
@@ -146,14 +168,28 @@ class ProjectDataHandler(webapp.RequestHandler):
         self.response.set_status(201)
 
 
+def render_template(template_name, extra_context=None):
+    context = {
+        "STATIC_VERSION": os.environ.get("CURRENT_VERSION_ID", None) or time.time()
+    }
+
+    if extra_context:
+        context.update(extra_context)
+
+    template_file = os.path.join(APP_ROOT, template_name)
+
+    return template.render(template_file, context)
+
+
 def main():
     application = webapp.WSGIApplication([
-        ('^/project$', ProjectHandler),
-        ('^/data$', ProjectDataHandler),
-        ('^/project/(?P<project_name>\w+)/data$', ProjectDataHandler),
-        ('^/project/(?P<project_name>\w+)/data/(?P<field_name>\w+)$', ProjectDataHandler),
+        ('^/$', ProjectHandler),
+        ('^/(?P<project_name>\w+)/$', ProjectHandler),
+        ('^/(?P<project_name>\w+)/data/$', ProjectDataHandler),
+        ('^/(?P<project_name>\w+)/data/(?P<field_name>\w+)/$', ProjectDataHandler),
     ], debug=True)
-    util.run_wsgi_app(application)
+
+    run_wsgi_app(application)
 
 if __name__ == '__main__':
     main()

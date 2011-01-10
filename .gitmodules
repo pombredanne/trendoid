@@ -1,0 +1,3 @@
+[submodule "static/external/dygraphs"]
+	path = static/external/dygraphs
+	url = https://github.com/danvk/dygraphs.git
