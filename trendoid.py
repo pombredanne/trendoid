@@ -218,13 +218,17 @@ class ProjectDataHandler(webapp.RequestHandler):
         self.response.clear()
         self.response.set_status(201)
 
-        taskqueue.add(url='/aggregates/update', params={'project': project.slug})
+        taskqueue.add(url='/aggregates/update', queue_name="aggregates",
+                        params={'project': project.slug,
+                                'date': date.today().isoformat()})
 
 class AggregationHandler(webapp.RequestHandler):
     def post(self):
         """Updates aggregates for all data points"""
 
-        start_date = self.request.get("date", date.today().isoformat())
+        start_date = self.request.get("date", None)
+        if start_date is None:
+            start_date = (date.today() - timedelta(days=1)).isoformat()
 
         if not DATE_RE.match(start_date):
             return self.error(400)
@@ -260,7 +264,10 @@ class AggregationHandler(webapp.RequestHandler):
                     aggregates[field].values.append(getattr(point, field))
 
             for agg in aggregates.values():
-                agg.put()
+                if len(agg.values) == 0:
+                    agg.delete()
+                else:
+                    agg.put()
 
 def render_template(template_name, extra_context=None):
     context = {

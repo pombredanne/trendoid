@@ -1,0 +1,4 @@
+cron:
+- description: update aggregates
+  url: /aggregates/update
+  schedule: every 24 hours

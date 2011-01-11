@@ -1,3 +1,7 @@
 queue:
-- name: aggregation
+- name: aggregates
   rate: 12/h
+  bucket_size: 1
+  retry_parameters:
+    task_age_limit: 300s
+    task_retry_limit: 1
