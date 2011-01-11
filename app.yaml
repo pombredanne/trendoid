@@ -13,3 +13,14 @@ handlers:
   expiration: 30d
 - url: /.*
   script: trendoid.py
+
+skip_files:
+- ^(.*/)?app\.yaml
+- ^(.*/)?app\.yml
+- ^(.*/)?index\.yaml
+- ^(.*/)?index\.yml
+- ^(.*/)?#.*#
+- ^(.*/)?.*~
+- ^(.*/)?.*\.py[co]$
+- ^(.*/)?\..*
+- ^static/external/dygraphs/(?!dygraph-combined.js).*$
