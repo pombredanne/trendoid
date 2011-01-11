@@ -14,3 +14,8 @@ indexes:
   properties:
   - name: project
   - name: timestamp
+
+- kind: DataPoint
+  ancestor: yes
+  properties:
+  - name: timestamp

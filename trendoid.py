@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 
+from datetime import date, datetime, timedelta
 import os
 import time
+import re
 
 from django.utils import simplejson
 
-from google.appengine.api import users
+from google.appengine.api import taskqueue, users
 from google.appengine.ext import db, webapp
 from google.appengine.ext.webapp import template
 from google.appengine.ext.webapp.util import run_wsgi_app
@@ -13,6 +15,7 @@ from google.appengine.ext.webapp.util import run_wsgi_app
 
 APP_ROOT = os.path.dirname(__file__)
 
+DATE_RE = re.compile('^\d{4}-\d{2}-\d{2}$')
 
 class Project(db.Model):
     slug = db.StringProperty(required=True)
@@ -39,19 +42,47 @@ class DataPoint(db.Expando):
     timestamp = db.DateTimeProperty(auto_now_add=True)
     remote_addr = db.StringProperty(required=True)
 
+
+class DataAggregate(db.Model):
+    """
+    Simple class used to aggregate values for a given range
+
+    key_name must be constructed to scope your data - for example:
+        '%(project)s:%(field)s:%(date)s'
+    """
+
+    # ISO 8601 value used soley for querying:
+    date = db.StringProperty()
+
+    values = db.ListProperty(float)
+
+    min = db.FloatProperty()
+    max = db.FloatProperty()
+    average = db.FloatProperty()
+    median = db.FloatProperty()
+
     def put(self, *args, **kwargs):
-        super(DataPoint, self).put(*args, **kwargs)
+        if self.values:
+            self.min = min(self.values)
+            self.max = max(self.values)
+            self.average = sum(self.values) / len(self.values)
 
-        # Now that we've been saved we'll update the project's list of field
-        # names so retrieval can be fast
+            sorted_values = sorted(self.values)
+            self.median = sorted_values[len(sorted_values) / 2]
+        else:
+            self.min = self.max = self.average = self.median = 0.0
 
-        # To avoid repeated lookups:
-        project = self.project
+        super(DataAggregate, self).put(*args, **kwargs)
 
-        new_fields = [k for k in self.dynamic_properties() if k not in project.field_names]
-        if new_fields:
-            project.field_names = list(set(project.field_names + new_fields))
-            project.put()
+    @classmethod
+    def get_or_create(cls, project_slug, field, date_iso):
+        key_name = "aggregate/%s:%s:%s" % (project_slug, field, date_iso)
+        agg = cls.get_by_key_name(key_name)
+        if agg is None:
+            agg = DataAggregate(key_name=key_name)
+            agg.date = date_iso
+
+        return agg
 
 
 class ProjectHandler(webapp.RequestHandler):
@@ -123,9 +154,20 @@ class ProjectDataHandler(webapp.RequestHandler):
         if field_name is None:
             self.response.out.write(simplejson.dumps({"fields": project.field_names}))
         else:
-            data = [("%sZ" % i.timestamp.isoformat(),
-                    getattr(i, field_name, None)) for i in project.data_points.order("timestamp")]
-            self.response.out.write(simplejson.dumps(data))
+            # We'll default to data in the last week:
+            start_date = self.request.get("start_date", None) or (date.today() - timedelta(7)).isoformat()
+            end_date = self.request.get("end_date", None) or date.today().isoformat()
+
+            if not DATE_RE.match(start_date) or not DATE_RE.match(end_date):
+                return self.error(400)
+
+            data = []
+            aggregates = DataAggregate.gql("WHERE date >= :start_date AND date <= :end_date",
+                                            start_date=start_date, end_date=end_date)
+            for agg in aggregates:
+                data.append((agg.date, (agg.min, agg.median, agg.max)))
+
+            self.response.out.write(simplejson.dumps(sorted(data)))
 
         self.response.headers['Content-Type'] = "application/json"
         self.response.headers['Cache-Control'] = "public; max-age=300"
@@ -171,11 +213,54 @@ class ProjectDataHandler(webapp.RequestHandler):
             self.error(400)
             return
 
-        DataPoint(project=project, remote_addr=self.request.remote_addr, **data).put()
+        DataPoint(parent=project, project=project, remote_addr=self.request.remote_addr, **data).put()
 
         self.response.clear()
         self.response.set_status(201)
 
+        taskqueue.add(url='/aggregates/update', params={'project': project.slug})
+
+class AggregationHandler(webapp.RequestHandler):
+    def post(self):
+        """Updates aggregates for all data points"""
+
+        start_date = self.request.get("date", date.today().isoformat())
+
+        if not DATE_RE.match(start_date):
+            return self.error(400)
+
+        try:
+            start_date = date(*map(int, start_date.split("-")))
+        except ValueError:
+            return self.error(400)
+
+        start_dt = datetime.fromordinal(start_date.toordinal())
+        end_dt = start_dt.replace(hour=23, minute=59, second=59)
+
+        project = self.request.get("project", None)
+        if project:
+            project = Project.get_by_key_name("project/%s" % project)
+            if not project:
+                return self.error(400)
+            projects = [project]
+        else:
+            projects = Project.all()
+
+        for project in projects:
+            aggregates = {}
+            for field in project.field_names:
+                agg = DataAggregate.get_or_create(project.slug, field, start_date.isoformat())
+                agg.values = [] # Clear out anything which already existed
+                aggregates[field] = agg
+
+            data_points = project.data_points.filter("timestamp >=", start_dt).filter('timestamp <=', end_dt)
+
+            for point in data_points:
+                for field in point.dynamic_properties():
+                    aggregates[field].values.append(getattr(point, field))
+
+            for agg in aggregates.values():
+                agg.put()
 
 def render_template(template_name, extra_context=None):
     context = {
@@ -196,6 +281,7 @@ def main():
         ('^/(?P<project_name>\w+)/$', ProjectHandler),
         ('^/(?P<project_name>\w+)/data/$', ProjectDataHandler),
         ('^/(?P<project_name>\w+)/data/(?P<field_name>\w+)/$', ProjectDataHandler),
+        ('^/aggregates/update$', AggregationHandler),
     ], debug=True)
 
     run_wsgi_app(application)
