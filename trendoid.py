@@ -51,7 +51,10 @@ class DataAggregate(db.Model):
         '%(project)s:%(field)s:%(date)s'
     """
 
-    # ISO 8601 value used soley for querying:
+    #: Used to retrieve data for a specific field:
+    field_name = db.StringProperty()
+
+    #: ISO 8601 value used solely for querying:
     date = db.StringProperty()
 
     values = db.ListProperty(float)
@@ -81,6 +84,8 @@ class DataAggregate(db.Model):
         if agg is None:
             agg = DataAggregate(key_name=key_name)
             agg.date = date_iso
+
+        agg.field_name = '%s:%s' % (project_slug, field)
 
         return agg
 
@@ -162,7 +167,8 @@ class ProjectDataHandler(webapp.RequestHandler):
                 return self.error(400)
 
             data = []
-            aggregates = DataAggregate.gql("WHERE date >= :start_date AND date <= :end_date",
+            aggregates = DataAggregate.gql("WHERE field_name = :field_name AND date >= :start_date AND date <= :end_date",
+                                            field_name="%s:%s" % (project.slug, field_name),
                                             start_date=start_date, end_date=end_date)
             for agg in aggregates:
                 data.append((agg.date, (agg.min, agg.median, agg.max)))
@@ -217,6 +223,11 @@ class ProjectDataHandler(webapp.RequestHandler):
 
         self.response.clear()
         self.response.set_status(201)
+
+        missing_fields = [k for k in data if k not in project.field_names]
+        if missing_fields:
+            project.field_names.extend(missing_fields)
+            project.put()
 
         taskqueue.add(url='/aggregates/update', queue_name="aggregates",
                         params={'project': project.slug,

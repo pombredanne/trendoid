@@ -19,3 +19,9 @@ indexes:
   ancestor: yes
   properties:
   - name: timestamp
+
+- kind: DataAggregate
+  properties:
+  - name: field_name
+  - name: date
+
